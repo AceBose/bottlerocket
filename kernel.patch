@@ -1,0 +1,135 @@
+From bd9448728976ba0794a2d679cee6cca057fc4087 Mon Sep 17 00:00:00 2001
+From: iliana etaoin <iliana@amazon.com>
+Date: Wed, 10 Feb 2021 19:13:35 +0000
+Subject: [PATCH] kernel: Attempt to build from RPi kernel sources
+
+---
+ packages/kernel/Cargo.toml          |  5 ++---
+ packages/kernel/config-bottlerocket | 16 ++++------------
+ packages/kernel/kernel.spec         | 21 +++++----------------
+ tools/rpm2img                       |  2 +-
+ 4 files changed, 12 insertions(+), 32 deletions(-)
+
+diff --git a/packages/kernel/Cargo.toml b/packages/kernel/Cargo.toml
+index dd2c7a86..33b5c8c1 100644
+--- a/packages/kernel/Cargo.toml
++++ b/packages/kernel/Cargo.toml
+@@ -9,6 +9,5 @@ build = "build.rs"
+ path = "pkg.rs"
+ 
+ [[package.metadata.build-package.external-files]]
+-# Use latest-srpm-url.sh to get this.
+-url = "https://cdn.amazonlinux.com/blobstore/5923078ac40834106f279fb42b9b177fea5c8136725a231e353772dbae9bce93/kernel-5.4.80-40.140.amzn2.src.rpm"
+-sha512 = "b09194da42aabe041992ed654dcca86bb245093e62b9a2c7a542fb6b6343f397cc96dd7d8734b258a01566a42027dc96ef80ebcf593222e50c722ec3ca74eff0"
++url = "https://github.com/raspberrypi/linux/archive/raspberrypi-kernel_1.20210108-1.tar.gz"
++sha512 = "52fd9c43eee8239d3c0dbb0815ff6107a1fd6021d379a2fd7c1201d08662dced435aaea2369afa7f6ee6e066b16e9371ffeb52626c76e23140415809152fda34"
+diff --git a/packages/kernel/config-bottlerocket b/packages/kernel/config-bottlerocket
+index caa6f106..fc68985d 100644
+--- a/packages/kernel/config-bottlerocket
++++ b/packages/kernel/config-bottlerocket
+@@ -4,18 +4,6 @@
+ # The root filesystem is ext4
+ CONFIG_EXT4_FS=y
+ 
+-# NVMe for EC2 Nitro platforms (C5, M5, and later)
+-CONFIG_BLK_DEV_NVME=y
+-CONFIG_NVME_CORE=y
+-
+-# Xen blkfront for Xen-based EC2 platforms
+-CONFIG_XEN_BLKDEV_FRONTEND=y
+-
+-# virtio for local testing with QEMU
+-CONFIG_VIRTIO=y
+-CONFIG_VIRTIO_BLK=y
+-CONFIG_VIRTIO_PCI=y
+-
+ # dm-verity and enabling it on the kernel command line
+ CONFIG_BLK_DEV_DM=y
+ CONFIG_DAX=y
+@@ -25,6 +13,9 @@ CONFIG_DM_VERITY=y
+ # yama LSM for ptrace restrictions
+ CONFIG_SECURITY_YAMA=y
+ 
++# Enable SELinux support.
++CONFIG_SECURITY_SELINUX=y
++
+ # Do not allow SELinux to be disabled at boot.
+ CONFIG_SECURITY_SELINUX_BOOTPARAM=n
+ 
+@@ -56,4 +47,5 @@ CONFIG_IKCONFIG_PROC=y
+ CONFIG_IKHEADERS=y
+ 
+ # BTF debug info at /sys/kernel/btf/vmlinux
++CONFIG_DEBUG_INFO=y
+ CONFIG_DEBUG_INFO_BTF=y
+diff --git a/packages/kernel/kernel.spec b/packages/kernel/kernel.spec
+index ec69ff59..9f9f3de2 100644
+--- a/packages/kernel/kernel.spec
++++ b/packages/kernel/kernel.spec
+@@ -1,18 +1,15 @@
+ %global debug_package %{nil}
+ 
+ Name: %{_cross_os}kernel
+-Version: 5.4.80
++Version: 5.4.83
+ Release: 1%{?dist}
+ Summary: The Linux kernel
+ License: GPL-2.0 WITH Linux-syscall-note
+ URL: https://www.kernel.org/
+ # Use latest-srpm-url.sh to get this.
+-Source0: https://cdn.amazonlinux.com/blobstore/5923078ac40834106f279fb42b9b177fea5c8136725a231e353772dbae9bce93/kernel-5.4.80-40.140.amzn2.src.rpm
++Source0: https://github.com/raspberrypi/linux/archive/raspberrypi-kernel_1.20210108-1.tar.gz
+ Source100: config-bottlerocket
+ 
+-# Make Lustre FSx work with a newer GCC.
+-Patch0001: 0001-lustrefsx-Disable-Werror-stringop-overflow.patch
+-
+ # Help out-of-tree module builds run `make prepare` automatically.
+ Patch1001: 1001-Makefile-add-prepare-target-for-external-modules.patch
+ 
+@@ -54,19 +51,10 @@ Summary: Header files for the Linux kernel for use by glibc
+ %{summary}.
+ 
+ %prep
+-rpm2cpio %{SOURCE0} | cpio -iu linux-%{version}.tar config-%{_cross_arch} "*.patch"
+-tar -xof linux-%{version}.tar; rm linux-%{version}.tar
+-%setup -TDn linux-%{version}
+-# Patches from the Source0 SRPM
+-for patch in ../*.patch; do
+-    patch -p1 <"$patch"
+-done
+-# Patches listed in this spec (Patch0001...)
+-%autopatch -p1
++%autosetup -n linux-raspberrypi-kernel_1.20210108-1
+ KCONFIG_CONFIG="arch/%{_cross_karch}/configs/%{_cross_vendor}_defconfig" \
+     ARCH="%{_cross_karch}" \
+-    scripts/kconfig/merge_config.sh ../config-%{_cross_arch} %{SOURCE100}
+-rm -f ../config-%{_cross_arch} ../*.patch
++    scripts/kconfig/merge_config.sh "arch/%{_cross_karch}/configs/bcmrpi3_defconfig" %{SOURCE100}
+ 
+ %global kmake \
+ make -s\\\
+@@ -188,6 +176,7 @@ install -d %{buildroot}%{kernel_sourcedir}
+ # into a host container (and unused in the host) so they must not point
+ # to %{_cross_usrsrc} (eg. /x86_64-bottlerocket-linux-gnu/sys-root/...)
+ rm -f %{buildroot}%{kernel_libdir}/build %{buildroot}%{kernel_libdir}/source
++mkdir -p %{buildroot}%{kernel_libdir}
+ ln -sf %{_usrsrc}/kernels/%{version} %{buildroot}%{kernel_libdir}/build
+ ln -sf %{_usrsrc}/kernels/%{version} %{buildroot}%{kernel_libdir}/source
+ 
+diff --git a/tools/rpm2img b/tools/rpm2img
+index a642e18e..4aad094b 100755
+--- a/tools/rpm2img
++++ b/tools/rpm2img
+@@ -178,7 +178,7 @@ set timeout="0"
+ 
+ menuentry "Bottlerocket OS ${VERSION_ID}" {
+    linux (\$root)/vmlinuz root=/dev/dm-0 rootwait ro \\
+-       console=tty0 console=ttyS0 random.trust_cpu=on selinux=1 enforcing=1 \\
++       console=tty0 console=ttyAMA0 random.trust_cpu=on selinux=1 enforcing=1 \\
+        systemd.log_target=journal-or-kmsg systemd.log_color=0 net.ifnames=0 \\
+        biosdevname=0 dm_verity.max_bios=-1 dm_verity.dev_wait=1 \\
+        dm-mod.create="root,,,ro,0 $VERITY_DATA_512B_BLOCKS verity $VERITY_VERSION PARTUUID=\$boot_uuid/PARTNROFF=1 PARTUUID=\$boot_uuid/PARTNROFF=2 \\
+-- 
+2.23.3
+

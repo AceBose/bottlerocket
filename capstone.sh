@@ -1,7 +1,7 @@
 #!/bin/bash
 sudo yum groupinstall "Development Tools" -y
 sudo yum install make automake gcc openssl openssl-devel pkg-config lz4 perl-FindBin perl-lib -y
-git clone https://github.com/bottlerocket-os/bottlerocket.git
+git clone https://github.com/AceBose/bottlerocket/tree/Raspberry-Pi
 cd bottlerocket
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 # -y command 1 is to run default setup
